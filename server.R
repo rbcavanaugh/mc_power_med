@@ -5,7 +5,7 @@ require(MASS)
 
 #--- SERVER SCRIPT -----------------------------------------------------------#
 
-function(input, output) {
+function(input, output, session) {
   
   # Execute model-specific power analysis code
   calc_power <- eventReactive(input$action, {
@@ -27,6 +27,152 @@ function(input, output) {
       }, include.rownames=FALSE)
     }
   )
+  
+  # Add the download handler
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste("power_analysis_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      data <- calc_power()
+      if (class(data) == "data.frame") {
+        
+        # Add  parameters from the analysis
+        data$Model <- input$model
+        data$Objective <- input$obj
+        data$Input_Method <- input$input_method
+        data$Replications <- input$powReps
+        data$MC_Draws_per_Rep <- input$mcmcReps
+        data$Random_Seed <- input$seed
+        data$Confidence_Level <- input$conf
+        data$Analysis_Date <- Sys.Date()
+        
+        # get input names and parameters from list of all inputs using string detection
+        # this was the easiest way to find them all? (hopefully) without having to create
+        # crazy conditional logic
+        all_inputs <- names(input)
+        target_inputs <- all_inputs[grepl("^(cor|SD)", all_inputs)]
+        
+        # Add all matching inputs
+        if (length(target_inputs) > 0) {
+          for (input_name in target_inputs) {
+            clean_name <- gsub("_", " ", input_name) 
+            data[[clean_name]] <- input[[input_name]]
+          }
+        }
+        
+        write.csv(data, file, row.names = FALSE)
+      }
+    }
+  )
+  
+  # Conditional button:
+  output$showDownload <- reactive({
+    class(calc_power()) == "data.frame"
+  })
+  outputOptions(output, "showDownload", suspendWhenHidden = FALSE)
+  
+  
+  # base R plot fo rthe power curve
+  output$powerCurve <- renderPlot({
+    # Get the power analysis results
+    data <- calc_power()
+    
+    # Check if we have valid data and a selected parameter
+    if (class(data) == "data.frame" && nrow(data) > 0 && 
+        !is.null(input$selected_parameter) && input$selected_parameter != "") {
+      
+      # Filter data for selected parameter
+      plot_data <- data[data$Parameter == input$selected_parameter, ]
+      
+      # Check if filtered data exists
+      if (nrow(plot_data) == 0) return(NULL)
+      
+      # Model name lookup using your existing choices
+      model_lookup <- list(
+        "one_mediator" = "One Mediator",
+        "two_parallel_mediators" = "Two Parallel Mediators",
+        "two_serial_mediators" = "Two Serial Mediators", 
+        "three_parallel_mediators" = "Three Parallel Mediators"
+      )
+      
+      # Get model display name
+      model_display <- model_lookup[[input$model]]
+      if (is.null(model_display)) {
+        model_display <- input$model  # fallback to raw value
+      }
+      
+      conf_level <- if("Confidence_Level" %in% names(plot_data) && length(plot_data$Confidence_Level) > 0) {
+        as.character(plot_data$Confidence_Level[1])
+      } else {
+        as.character(input$conf)
+      }
+      
+      input_method <- if("Input_Method" %in% names(plot_data) && length(plot_data$Input_Method) > 0) {
+        as.character(plot_data$Input_Method[1])
+      } else {
+        input$input_method
+      }
+      
+      input_display <- switch(as.character(input_method),
+                              "correlations" = "Correlations",
+                              "stdcoef" = "Standardized Coefficients",
+                              input_method
+      )
+      
+      # Create the plot
+      plot(plot_data$N, plot_data$Power, 
+           type = "l", 
+           lwd = 2, 
+           col = "blue",
+           xlab = "Sample Size (N)", 
+           ylab = "Statistical Power",
+           ylim = c(0, 1),
+           main = paste("Power Analysis:", model_display, 
+                        "\nParameter:", input$selected_parameter,
+                        "| Confidence Level:", paste0(conf_level, "%"),
+                        "| Input Method:", input_display))
+      
+      # Add confidence interval lines
+      lines(plot_data$N, plot_data$LL, lty = 2, col = "red", lwd = 1.5)
+      lines(plot_data$N, plot_data$UL, lty = 2, col = "red", lwd = 1.5)
+      
+      # Add horizontal line at 80% power
+      abline(h = 0.8, col = "gray", lty = 3)
+      
+      # Add grid
+      grid(col = "lightgray", lty = 1)
+      
+      # Add legend
+      legend("bottomright", 
+             legend = c("Power", "95% CI", "80% Power"),
+             col = c("blue", "red", "gray"),
+             lty = c(1, 2, 3),
+             lwd = c(2, 1.5, 1),
+             bg = "white")
+    }
+  })
+  
+  # Plot options: 
+  observeEvent(calc_power(), {
+    data <- calc_power()
+    if (class(data) == "data.frame" && nrow(data) > 0 && "Parameter" %in% names(data)) {
+      # Get unique parameters
+      unique_params <- unique(data$Parameter)
+      
+      # Create named list for dropdown
+      param_choices <- setNames(unique_params, unique_params)
+      
+      # Update the selectInput choices
+      updateSelectInput(session, "selected_parameter", 
+                        choices = param_choices,
+                        selected = unique_params[1])
+    } else {
+      # Clear choices if no valid data
+      updateSelectInput(session, "selected_parameter", 
+                        choices = NULL)
+    }
+  })
 
   # Render Objective Input Options
   output$obj_options <- renderUI({

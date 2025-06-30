@@ -92,6 +92,11 @@ fluidPage(theme = 'spacelab.css', #id = "page",
             td(nowrap = NA, label("Confidence Level (%)")),
             td(numericInput(inputId = "conf", label = NULL, value = 95))
           )
+        ),
+        conditionalPanel(
+          condition = "output.showDownload",
+          style = "text-align: center; padding: 20px;",
+          downloadButton("downloadData", "Download Data", class = "btn-primary")
         )
       )
     ),
@@ -219,6 +224,43 @@ tags$p(tags$b("6. Initiate Power Analysis. "),
         
         # Power anlaysis output
         tableOutput("power"))
+
+
+
+    )
+  ),
+fluidRow(
+  # Only show for "Set Power, Vary N" objective
+  conditionalPanel(
+    condition = "input.obj == 'choose_power' && output.showDownload",
+    style = "margin-top: 20px;",
+    wellPanel(
+      h4("Power Curve", style = "text-align: center;"),
+      fluidRow(
+        column(3,
+          # plot inputs
+          conditionalPanel(
+            condition = "output.showDownload",
+            style = "margin-top: 10px;",
+            wellPanel(
+              h5("Plot Options", style = "text-align: center; margin-bottom: 15px;"),
+              withTags(
+                table(style = "width: 100%;",
+                      td(nowrap = NA, label("Parameter"), style = "width: 30%;"),
+                      td(style = "width: 70%;",
+                         selectInput(inputId = "selected_parameter", label = NULL,
+                                     choices = NULL, width = "100%"))
+                )
+              )
+            )
+          )
+        ),  
+        column(8,  
+               plotOutput("powerCurve", height = "400px")
+        ),
+        column(1)   
+      )
     )
   )
+)
 )
